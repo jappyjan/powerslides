@@ -1,0 +1,25 @@
+{
+  "name": "powerslides-server",
+  "projectType": "application",
+  "sourceRoot": "apps/powerslides-server/src",
+  "targets": {
+    "build": {
+      "executor": "@nx/js:tsc",
+      "outputs": [
+        "{options.outputPath}"
+      ],
+      "options": {
+        "outputPath": "dist/apps/powerslides-server",
+        "main": "apps/powerslides-server/src/main.ts",
+        "tsConfig": "apps/powerslides-server/tsconfig.app.json"
+      }
+    },
+    "serve": {
+      "executor": "@nx/js:node",
+      "options": {
+        "buildTarget": "powerslides-server:build"
+      }
+    }
+  },
+  "tags": []
+}
