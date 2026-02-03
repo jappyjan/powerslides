@@ -4,6 +4,7 @@
   "private": true,
   "dependencies": {
     "@evenrealities/even_hub_sdk": "^0.0.6",
+    "@jappyjan/even-better-sdk": "^0.0.8",
     "@jappyjan/even-realities-ui": "^0.0.5",
     "@tailwindcss/vite": "^4.1.18",
     "tailwindcss": "^4.1.18",

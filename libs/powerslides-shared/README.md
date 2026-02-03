@@ -1,7 +1,9 @@
 # powerslides-shared
 
-This library was generated with [Nx](https://nx.dev).
+Shared types and utilities used by the web app, server, and browser extension.
 
-## Building
+## Build
 
-Run `nx build powerslides-shared` to build the library.
+```
+npx nx build powerslides-shared
+```

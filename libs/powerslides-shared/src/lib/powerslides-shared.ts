@@ -2,7 +2,7 @@ export const WS_ROOM_PREFIX = 'slides';
 export const WS_EVENT_STATE = 'state';
 export const WS_EVENT_COMMAND = 'command';
 
-export type SlideState = {
+export type PresentationData = {
   current: number | null;
   total: number | null;
   speakerNote: string | null;
@@ -22,12 +22,14 @@ export type SlideCommand = {
 
 export type WsJoinMessage = {
   type: 'join';
-  pairingCode: string;
+  slideId: string;
+  password: string;
+  createRoom?: boolean;
 };
 
 export type WsStateMessage = {
   type: 'state';
-  payload: SlideState;
+  payload: PresentationData;
 };
 
 export type WsCommandMessage = {
@@ -172,114 +174,4 @@ export const createCommandId = (): string => {
     return crypto.randomUUID();
   }
   return `cmd_${generatePairingPassword(12)}`;
-};
-
-const toHex = (bytes: Uint8Array): string =>
-  Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
-
-const sha256Fallback = (input: string): string => {
-  const rightRotate = (value: number, amount: number) => (value >>> amount) | (value << (32 - amount));
-  let result = '';
-  const words: number[] = [];
-  const asciiBitLength = input.length * 8;
-
-  const hash: number[] = [];
-  const k: number[] = [];
-  let primeCounter = 0;
-  const isPrime = (n: number) => {
-    for (let i = 2; i * i <= n; i += 1) {
-      if (n % i === 0) return false;
-    }
-    return true;
-  };
-
-  for (let candidate = 2; primeCounter < 64; candidate += 1) {
-    if (isPrime(candidate)) {
-      if (primeCounter < 8) {
-        hash[primeCounter] = (Math.pow(candidate, 0.5) * 0x100000000) | 0;
-      }
-      k[primeCounter] = (Math.pow(candidate, 1 / 3) * 0x100000000) | 0;
-      primeCounter += 1;
-    }
-  }
-
-  for (let i = 0; i < input.length; i += 1) {
-    const code = input.charCodeAt(i);
-    if (code > 0xff) {
-      throw new Error('Non-ASCII input not supported in sha256 fallback.');
-    }
-    words[i >> 2] |= code << ((3 - (i % 4)) * 8);
-  }
-
-  words[asciiBitLength >> 5] |= 0x80 << (24 - (asciiBitLength % 32));
-  words[((asciiBitLength + 64 >> 9) << 4) + 15] = asciiBitLength;
-
-  for (let i = 0; i < words.length; i += 16) {
-    const w: number[] = words.slice(i, i + 16);
-    for (let t = 16; t < 64; t += 1) {
-      const s0 = rightRotate(w[t - 15], 7) ^ rightRotate(w[t - 15], 18) ^ (w[t - 15] >>> 3);
-      const s1 = rightRotate(w[t - 2], 17) ^ rightRotate(w[t - 2], 19) ^ (w[t - 2] >>> 10);
-      w[t] = (w[t - 16] + s0 + w[t - 7] + s1) | 0;
-    }
-
-    let a: number = hash[0] ?? 0;
-    let b: number = hash[1] ?? 0;
-    let c: number = hash[2] ?? 0;
-    let d: number = hash[3] ?? 0;
-    let e: number = hash[4] ?? 0;
-    let f: number = hash[5] ?? 0;
-    let g: number = hash[6] ?? 0;
-    let h: number = hash[7] ?? 0;
-
-    for (let t = 0; t < 64; t += 1) {
-      const s1 = rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25);
-      const ch = (e & f) ^ (~e & g);
-      const temp1 = (h + s1 + ch + k[t] + w[t]) | 0;
-      const s0 = rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22);
-      const maj = (a & b) ^ (a & c) ^ (b & c);
-      const temp2 = (s0 + maj) | 0;
-
-      h = g;
-      g = f;
-      f = e;
-      e = (d + temp1) | 0;
-      d = c;
-      c = b;
-      b = a;
-      a = (temp1 + temp2) | 0;
-    }
-
-    hash[0] = (hash[0] + a) | 0;
-    hash[1] = (hash[1] + b) | 0;
-    hash[2] = (hash[2] + c) | 0;
-    hash[3] = (hash[3] + d) | 0;
-    hash[4] = (hash[4] + e) | 0;
-    hash[5] = (hash[5] + f) | 0;
-    hash[6] = (hash[6] + g) | 0;
-    hash[7] = (hash[7] + h) | 0;
-  }
-
-  for (let i = 0; i < hash.length; i += 1) {
-    for (let j = 3; j >= 0; j -= 1) {
-      const byte = (hash[i] >> (j * 8)) & 0xff;
-      result += byte.toString(16).padStart(2, '0');
-    }
-  }
-
-  return result;
-};
-
-const sha256Hex = async (input: string): Promise<string> => {
-  if (typeof crypto !== 'undefined' && crypto.subtle && typeof TextEncoder !== 'undefined') {
-    const data = new TextEncoder().encode(input);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    return toHex(new Uint8Array(hashBuffer));
-  }
-  return sha256Fallback(input);
-};
-
-export const derivePairingRoomName = async (pairingCode: string): Promise<string> => {
-  const normalized = normalizePairingCode(pairingCode);
-  const hash = await sha256Hex(normalized);
-  return `${WS_ROOM_PREFIX}_${hash}`;
 };

@@ -1,40 +1,42 @@
-import { useEffect, useState } from "react";
-import { formatPairingCode, parsePairingCodeResult } from "@jappyjan/powerslides-shared";
-import type { PairingPayload } from "@jappyjan/powerslides-shared";
+import { useEffect, useMemo, useState } from "react";
+import { formatPairingCode } from "@jappyjan/powerslides-shared";
 import { Button, Card, CardContent, CardFooter, CardHeader, Input, Text } from "@jappyjan/even-realities-ui";
+import { useLogger } from "../hooks/useLogger";
+import { EvenBetterElementSize, EvenBetterTextElement } from "@jappyjan/even-better-sdk";
+import { useSlidesContext } from "../slidesContext";
 
-interface Props {
-    pairing: PairingPayload | null;
-    setPairing: (pairing: PairingPayload | null) => void;
-}
 
-export function SlideCodeInput(props: Props) {
-    const { pairing, setPairing } = props;
+export function SlideCodeInput() {
+    const { info: logInfo } = useLogger();
 
-    const [nextPairingCode, setNextPairingCode] = useState<string>(
-        pairing ? formatPairingCode(pairing.slideId) : ""
-    );
-    const [error, setError] = useState<string | null>(null);
+    const [nextPairingCode, setNextPairingCode] = useState<string>("");
+
+    const { connect, isConnecting, sdk } = useSlidesContext();
+
+    const handleConnect = async () => {
+        await connect(nextPairingCode);
+    };
+
+    const glassesPage = useMemo(() => sdk.createPage("connect"), [sdk]);
+    const textElement = useMemo(() => {
+        const element = glassesPage.addTextElement("Enter pairing code in APP");
+        element.setSize((size) => {
+            size.setWidth(EvenBetterElementSize.MAX_WIDTH);
+            size.setHeight(EvenBetterElementSize.MAX_HEIGHT);
+        });
+        return element as EvenBetterTextElement;
+    }, [glassesPage]);
 
     useEffect(() => {
-        if (pairing) {
-            setNextPairingCode(formatPairingCode(pairing.slideId));
+        logInfo("slideCodeInput", `isConnectin: ${isConnecting}`);
+        if (isConnecting) {
+            textElement.setContent("Connecting...");
+        } else {
+            textElement.setContent("Enter pairing code in APP");
         }
-    }, [pairing]);
 
-    const handleConnect = () => {
-        const result = parsePairingCodeResult(nextPairingCode);
-        if (!result.payload) {
-            if (result.error === "expired") {
-                setError("Pairing code expired. Generate a new code in the extension.");
-                return;
-            }
-            setError("Invalid pairing code. Enter the 12-character code.");
-            return;
-        }
-        setError(null);
-        setPairing(result.payload);
-    };
+        glassesPage.render();
+    }, [textElement, glassesPage, isConnecting, logInfo])
 
     return (<div className="flex flex-col gap-layout-section">
         <Card>
@@ -51,14 +53,10 @@ export function SlideCodeInput(props: Props) {
                 <Text variant="body-2">
                     Enter the code shown in the slide control extension.
                 </Text>
-                {error && (
-                    <Text variant="detail" className="text-red-400">
-                        {error}
-                    </Text>
-                )}
             </CardContent >
             <CardFooter>
-                <Button onClick={handleConnect} variant="primary">
+                <Button onClick={handleConnect} variant="primary" disabled={isConnecting}>
+                    {isConnecting ? "Connecting..." : "Connect"}
                     Connect
                 </Button>
             </CardFooter>

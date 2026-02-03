@@ -1,7 +1,7 @@
 import type {
   SlideCommand,
   SlideCommandType,
-  SlideState,
+  PresentationData,
   WsCommandMessage,
   WsMessage,
   WsStateMessage,
@@ -34,7 +34,7 @@ let reconnectAttempts = 0;
 let pollIntervalId: number | null = null;
 let session: RemoteSession | null = null;
 let presentationStartedAt: number | null = null;
-let lastState: SlideState | null = null;
+let lastState: PresentationData | null = null;
 const seenCommands = new Set<string>();
 const SESSION_STORAGE_KEY = 'remoteSession';
 const tabInjectionAttempts = new Map<number, number>();
@@ -179,7 +179,7 @@ const scheduleReconnect = () => {
   reconnectAttempts += 1;
   reconnectTimeoutId = self.setTimeout(() => {
     if (session) {
-      connectSocket(session.slideId);
+      connectSocket(session.slideId, session.password);
     }
   }, delay);
   console.info('[powerslides-browser-extension] scheduled reconnect', { delay });
@@ -206,7 +206,7 @@ const startPresentation = async (reason: string) => {
   await publishState(session.tabId);
 };
 
-const connectSocket = (pairingCode: string) => {
+const connectSocket = (slideId: string, password: string) => {
   const url = getWebSocketUrl();
   closeSocket();
   socketReady = false;
@@ -217,7 +217,7 @@ const connectSocket = (pairingCode: string) => {
     socketReady = true;
     reconnectAttempts = 0;
     console.info('[powerslides-browser-extension] websocket open');
-    sendSocketMessage({ type: 'join', pairingCode });
+    sendSocketMessage({ type: 'join', slideId, password, createRoom: true });
     if (session) {
       publishState(session.tabId);
     }
@@ -349,7 +349,7 @@ const publishState = async (tabId: number) => {
       });
     }
 
-    const nextState: SlideState = {
+    const nextState: PresentationData = {
       current: counts?.current ?? lastState?.current ?? null,
       total: counts?.total ?? lastState?.total ?? null,
       speakerNote: notes?.speakerNote ?? lastState?.speakerNote ?? null,
@@ -389,7 +389,7 @@ const startSession = async (payload: {
   };
   presentationStartedAt = null;
   lastState = null;
-  connectSocket(payload.slideId);
+  connectSocket(payload.slideId, payload.password);
   await chrome.storage.session.set({ [SESSION_STORAGE_KEY]: session });
   await publishState(payload.tabId);
   console.info('[powerslides-browser-extension] initial state sent');
@@ -405,8 +405,8 @@ const startSession = async (payload: {
 };
 
 const restoreSession = async () => {
-  const stored = await chrome.storage.session.get([SESSION_STORAGE_KEY, 'gunSession']);
-  const storedSession = (stored[SESSION_STORAGE_KEY] ?? stored.gunSession) as
+  const stored = await chrome.storage.session.get([SESSION_STORAGE_KEY, 'session']);
+  const storedSession = (stored[SESSION_STORAGE_KEY] ?? stored.session) as
     | RemoteSession
     | undefined;
   if (!storedSession || !storedSession.pairingCode) {
@@ -415,8 +415,8 @@ const restoreSession = async () => {
     }
     return;
   }
-  if (stored.gunSession) {
-    await chrome.storage.session.remove('gunSession');
+  if (stored.session) {
+    await chrome.storage.session.remove('session');
   }
   try {
     await chrome.tabs.get(storedSession.tabId);
@@ -427,7 +427,7 @@ const restoreSession = async () => {
       pairingCode: storedSession.pairingCode,
     });
   } catch {
-    await chrome.storage.session.remove('gunSession');
+    await chrome.storage.session.remove('session');
   }
 };
 

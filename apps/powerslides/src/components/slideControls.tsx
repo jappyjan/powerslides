@@ -1,7 +1,9 @@
-import { useBridgeState } from "../hooks/useBridgeState";
-import { EvenHubEvent, OsEventTypeList, RebuildPageContainer, TextContainerProperty } from "@evenrealities/even_hub_sdk";
 import { Badge, Button, Card, CardContent, CardFooter, CardHeader } from "@jappyjan/even-realities-ui";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { EvenHubEvent, OsEventTypeList } from "@evenrealities/even_hub_sdk";
+import { EvenBetterElementSize } from "@jappyjan/even-better-sdk";
+import { useLogger } from "../hooks/useLogger";
+import { useSlidesContext } from "../slidesContext";
 
 interface Props {
     title: string | null;
@@ -15,18 +17,35 @@ interface Props {
     loading: boolean;
 }
 
+// Helper to format duration as mm:ss
+const formatDuration = (ms: number | null) => {
+    if (ms == null) return "--:--";
+    const minutes = Math.floor(ms / 60000);
+    const seconds = Math.floor((ms % 60000) / 1000);
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+};
+
+const formatPagination = (currentSlide: number, totalSlides: number, presentationDurationMs: number) => {
+    return `${currentSlide}/${totalSlides} • ${formatDuration(presentationDurationMs)}`;
+};
+
 export function SlideControls(props: Props) {
     const { loading, title, presentationDurationMs, speakerNote: speakerNoteHtml, goToNextSlide, goToPreviousSlide, startPresentation, totalSlides, currentSlide } = props;
 
-    const { initialized: bridgeInitialized, bridge } = useBridgeState();
+    const { info: logInfo } = useLogger();
+    const { sdk } = useSlidesContext();
 
-    // Helper to format duration as mm:ss
-    const formatDuration = (ms: number | null) => {
-        if (ms == null) return "--:--";
-        const minutes = Math.floor(ms / 60000);
-        const seconds = Math.floor((ms % 60000) / 1000);
-        return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-    };
+    const waitForStartPresentationPage = useRef(sdk.createPage("wait-for-start-presentation"));
+    const presentationPage = useRef(sdk.createPage("presentation"));
+    const speakerNotesElement = useRef(presentationPage.current.addTextElement("loading..."));
+
+    // render initial page with waiting for start presentation list
+    useEffect(() => {
+        waitForStartPresentationPage.current.addListElement(["Click to start presentation"]);
+        waitForStartPresentationPage.current.render();
+    }, []);
+
+    const paginationElement = useRef(presentationPage.current.addTextElement(formatPagination(0, 0, 0)));
 
     const speakerNote = useMemo(() => {
         if (!speakerNoteHtml) return undefined;
@@ -44,144 +63,83 @@ export function SlideControls(props: Props) {
 
         const doc = new DOMParser().parseFromString(htmlWithBreaks, "text/html");
         const text = doc.body.textContent ?? "";
-        return text.replace(/\n{3,}/g, "\n\n").trim();
+        const cleanText = text.replace(/\n{3,}/g, "\n\n").trim();
+        return '\n\n' + cleanText;
     }, [speakerNoteHtml]);
 
-    const speakerNotesContainerId = useMemo(() => 99, []);
+    const hasPresentationStarted = useMemo(() => presentationDurationMs !== null, [presentationDurationMs]);
 
-    const [activeUpdates, setActiveUpdates] = useState(0);
-    const hasPresentationStarted = presentationDurationMs !== null;
-    const hasPresentationStartedRef = useRef(hasPresentationStarted);
-    const loadingRef = useRef(loading);
-    const activeUpdatesRef = useRef(activeUpdates);
-    const startPresentationRef = useRef(startPresentation);
-    const goToNextSlideRef = useRef(goToNextSlide);
-    const goToPreviousSlideRef = useRef(goToPreviousSlide);
-
-    const eventListenersRegistered = useRef(false);
-    useEffect(() => {
-        hasPresentationStartedRef.current = hasPresentationStarted;
-    }, [hasPresentationStarted]);
-
-    useEffect(() => {
-        loadingRef.current = loading;
-    }, [loading]);
-
-    useEffect(() => {
-        activeUpdatesRef.current = activeUpdates;
-    }, [activeUpdates]);
-
-    useEffect(() => {
-        startPresentationRef.current = startPresentation;
-    }, [startPresentation]);
-
-    useEffect(() => {
-        goToNextSlideRef.current = goToNextSlide;
-        goToPreviousSlideRef.current = goToPreviousSlide;
-    }, [goToNextSlide, goToPreviousSlide]);
-
-    const [lastEvenhubEvent, setLastEvenhubEvent] = useState<EvenHubEvent | null>(null);
-
-    useEffect(() => {
-        if (!bridge || eventListenersRegistered.current) return;
-
-        eventListenersRegistered.current = true;
-
-        bridge.onEvenHubEvent((evt) => {
-            setLastEvenhubEvent(evt);
-        })
-    }, [bridge]);
-
-    useEffect(() => {
-        if (!lastEvenhubEvent) return;
-
-        if (!lastEvenhubEvent.textEvent) return;
-
-        if (lastEvenhubEvent.textEvent.containerID !== speakerNotesContainerId) return;
-
-        if (!hasPresentationStartedRef.current) {
-            if (lastEvenhubEvent.textEvent.eventType === OsEventTypeList.DOUBLE_CLICK_EVENT) {
-                startPresentationRef.current();
+    const handleEvenHubEvent = useCallback((event: EvenHubEvent) => {
+        if (event.textEvent?.containerID === speakerNotesElement.current.id) {
+            if (event.textEvent.eventType === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
+                goToNextSlide();
             }
-            return;
+
+            if (event.textEvent.eventType === OsEventTypeList.SCROLL_TOP_EVENT) {
+                goToPreviousSlide();
+            }
         }
 
-        if (loadingRef.current || activeUpdatesRef.current > 0) return;
-
-        if (lastEvenhubEvent.textEvent.eventType === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
-            goToNextSlideRef.current();
-        } else if (lastEvenhubEvent.textEvent.eventType === OsEventTypeList.SCROLL_TOP_EVENT) {
-            goToPreviousSlideRef.current();
+        logInfo('slide-controls', `even hub event: ${event.listEvent?.containerID}`);
+        if (event.listEvent?.containerID === speakerNotesElement.current.id) {
+            startPresentation();
         }
-    }, [lastEvenhubEvent]);
-
-    const updateGlassesUi = useCallback(async () => {
-        if (!bridgeInitialized || !bridge) {
-            console.log('not updating glasses ui because bridge is not initialized or update is in progress');
-            return;
-        }
-
-
-        setActiveUpdates(prev => prev + 1);
-
-        while (!bridge.ready) {
-            console.log('waiting for bridge to be ready');
-            await new Promise(resolve => setTimeout(resolve, 100));
-        }
-
-        console.log('updating glasses ui');
-
-        const messageContainer = TextContainerProperty.fromJson({
-            xPosition: 0,
-            yPosition: 0,
-            width: 576,
-            height: 288,
-            containerID: speakerNotesContainerId,
-            containerName: 'speaker-notes',
-            content: "double click to start presentation",
-            isEventCapture: 1,
-        } as Partial<TextContainerProperty>);
-
-        const speakerNotesContainer = TextContainerProperty.fromJson({
-            xPosition: 0,
-            yPosition: 0,
-            width: 576,
-            height: 238,
-            containerID: speakerNotesContainerId,
-            containerName: 'speaker-notes',
-            content: loading ? "Loading..." : speakerNote?.substring(0, 1500) ?? "No speaker note",
-            isEventCapture: 1,
-        } as Partial<TextContainerProperty>);
-
-        console.log('currentSlide', currentSlide);
-        console.log('totalSlides', totalSlides);
-        const slidePageContainer = TextContainerProperty.fromJson({
-            xPosition: 0,
-            yPosition: 238,
-            width: 576,
-            height: 50,
-            containerID: speakerNotesContainerId + 1,
-            containerName: 'slide-page',
-            content: `${currentSlide ?? 0} / ${totalSlides ?? 0} • ${formatDuration(presentationDurationMs)}`,
-        } as Partial<TextContainerProperty>);
-
-        const result = await bridge.rebuildPageContainer(RebuildPageContainer.fromJson({
-            containerTotalNum: hasPresentationStarted ? 2 : 1,
-            textObject: hasPresentationStarted
-                ? [speakerNotesContainer, slidePageContainer]
-                : [messageContainer],
-        } as Partial<RebuildPageContainer>));
-
-        console.log('udpate glasses ui result', result);
-
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        setActiveUpdates(prev => prev - 1);
-    }, [speakerNote, presentationDurationMs, bridgeInitialized, bridge, totalSlides, currentSlide, loading, hasPresentationStarted]);
+    }, [goToNextSlide, goToPreviousSlide, startPresentation, logInfo, speakerNotesElement.current.id]);
 
     useEffect(() => {
-        updateGlassesUi();
-    }, [updateGlassesUi]);
+        sdk.addEventListener(handleEvenHubEvent);
+        return () => sdk.removeEventListener(handleEvenHubEvent);
+    }, [handleEvenHubEvent]);
+
+    const getSpeakerNotesContent = useCallback(() => {
+        if (loading) return "Loading...";
+
+        return speakerNote?.substring(0, 1500) ?? "No speaker note";
+    }, [loading, speakerNote]);
+
+    useEffect(() => {
+        speakerNotesElement.current
+            .setPosition((position) => {
+                position.setX(0);
+                position.setY(0);
+            })
+            .setSize((size) => {
+                size.setWidth(EvenBetterElementSize.MAX_WIDTH);
+                size.setHeight(EvenBetterElementSize.MAX_HEIGHT);
+            })
+            .markAsEventCaptureElement();
+
+        paginationElement.current
+            .setPosition((position) => {
+                position.setX(0);
+                position.setY(238);
+            })
+            .setSize((size) => {
+                size.setWidth(EvenBetterElementSize.MAX_WIDTH);
+                size.setHeight(50);
+            });
+    }, []);
+
+    useEffect(() => {
+        if (!hasPresentationStarted) {
+            return;
+        }
+
+        paginationElement.current.setContent(formatPagination(currentSlide ?? 0, totalSlides ?? 0, presentationDurationMs ?? 0));
+
+        speakerNotesElement.current.setContent(getSpeakerNotesContent());
+
+        presentationPage.current.render();
+    }, [formatPagination, currentSlide, totalSlides, presentationDurationMs, getSpeakerNotesContent, hasPresentationStarted]);
+
+
+    useEffect(() => {
+        if (!hasPresentationStarted) {
+            return;
+        }
+
+        presentationPage.current.render();
+    }, [hasPresentationStarted]);
 
     return (
         <Card>

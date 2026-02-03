@@ -6,6 +6,10 @@ import tailwindcss from '@tailwindcss/vite';
 export default defineConfig(() => ({
   root: import.meta.dirname,
   cacheDir: '../../node_modules/.vite/apps/powerslides',
+  resolve: {
+    dedupe: ['@jappyjan/even-better-sdk', '@evenrealities/even_hub_sdk'],
+    preserveSymlinks: true,
+  },
   server: {
     port: 4000,
     host: true, // listen on all interfaces, accessible via <local-ip>:4000
