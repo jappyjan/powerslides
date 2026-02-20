@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   createPairingSession,
   type PairingPayload,
+  type PresentationData,
 } from '@jappyjan/powerslides-shared';
 
 type SlideCounts = {
@@ -40,10 +41,9 @@ const ensureSlidesTab = async () => {
   return tab;
 };
 
-const sendMessage = async <T,>(type: string) => {
-  const tab = await ensureSlidesTab();
-  return new Promise<SlidesResponse<T>>((resolve, reject) => {
-    chrome.tabs.sendMessage(tab.id!, { type }, (response: SlidesResponse<T>) => {
+const sendToContentScript = async <T,>(tabId: number, type: string) =>
+  new Promise<SlidesResponse<T>>((resolve, reject) => {
+    chrome.tabs.sendMessage(tabId, { type }, (response: SlidesResponse<T>) => {
       const err = chrome.runtime.lastError;
       if (err) {
         reject(
@@ -56,7 +56,6 @@ const sendMessage = async <T,>(type: string) => {
       resolve(response);
     });
   });
-};
 
 const sendRuntimeMessage = async <T,>(
   message: unknown,
@@ -96,88 +95,33 @@ export const useGoogleSlides = () => {
   const [pairingStatus, setPairingStatus] = useState('Not connected');
   const [pairingError, setPairingError] = useState<string | null>(null);
   const [isTransitioning, setIsTransitioning] = useState(false);
+  const [isPresentMode, setIsPresentMode] = useState(false);
 
-  const runAction = useCallback(
-    async <T,>(
-      label: string,
-      type: string,
-      onData?: (data: T | undefined) => void,
-      options?: { silent?: boolean }
-    ) => {
-      if (!options?.silent) {
-        setStatus(label);
-        setError(null);
-      }
-      try {
-        const response = await sendMessage<T>(type);
-        if (!response.ok) {
-          throw new Error(response.error || 'Request failed.');
-        }
-        onData?.(response.data);
-        if (!options?.silent) {
-          setStatus('Ready');
-        }
-      } catch (err) {
-        if (!options?.silent) {
-          setStatus('Error');
-          setError(err instanceof Error ? err.message : 'Unknown error.');
-        }
-      }
-    },
-    []
-  );
+  const requestState = useCallback(async () => {
+    try {
+      const tab = await ensureSlidesTab();
+      await sendRuntimeMessage({
+        type: 'REMOTE_REQUEST_STATE',
+        payload: { tabId: tab.id },
+      });
+    } catch {
+      // Ignore - popup may not have Slides tab
+    }
+  }, []);
 
-  const startPresentationMode = useCallback(
-    () => runAction('Opening present mode...', 'SLIDES_OPEN_PRESENT'),
-    [runAction]
-  );
-
-  const refreshAll = useCallback(
-    async (options?: { silent?: boolean }) => {
-      await Promise.all([
-        runAction<{ current: number | null; total: number | null }>(
-          'Reading slide counts...',
-          'SLIDES_GET_COUNTS',
-          (data) => {
-            if (data) {
-              setPage({
-                current: data.current ?? null,
-                total: data.total ?? null,
-              });
-            }
-          },
-          options
-        ),
-        runAction<{ speakerNote: string | null }>(
-          'Reading speaker notes...',
-          'SLIDES_GET_SPEAKER_NOTES',
-          (htmlSpeakerNotes) => {
-            // Preserve common block/line break tags before stripping HTML.
-            const htmlWithBreaks = String(htmlSpeakerNotes?.speakerNote || '')
-              .replace(/<\s*br\s*\/?>/gi, '\n')
-              .replace(/<\/\s*p\s*>/gi, '\n')
-              .replace(/<\/\s*div\s*>/gi, '\n')
-              .replace(/<\/\s*li\s*>/gi, '\n');
-
-            if (typeof DOMParser === 'undefined') {
-              setSpeakerNotes(htmlWithBreaks.replace(/<[^>]+>/g, ''));
-              return;
-            }
-
-            const doc = new DOMParser().parseFromString(htmlWithBreaks, 'text/html');
-            const text = doc.body.textContent ?? '';
-            const plainTextSpeakerNotes = text
-              .replace(/\n{3,}/g, '\n\n')
-              .trim();
-
-            setSpeakerNotes(plainTextSpeakerNotes);
-          },
-          options
-        ),
-      ]);
-    },
-    [runAction]
-  );
+  const startPresentationMode = useCallback(async () => {
+    setStatus('Opening present mode...');
+    setError(null);
+    try {
+      const tab = await ensureSlidesTab();
+      const response = await sendToContentScript<unknown>(tab.id!, 'SLIDES_OPEN_PRESENT');
+      if (!response.ok) throw new Error(response.error || 'Request failed.');
+      setStatus('Ready');
+    } catch (err) {
+      setStatus('Error');
+      setError(err instanceof Error ? err.message : 'Unknown error.');
+    }
+  }, []);
 
   const nextSlide = useCallback(async () => {
     const { current, total } = page;
@@ -186,12 +130,16 @@ export const useGoogleSlides = () => {
     }
     setIsTransitioning(true);
     try {
-      await runAction('Advancing slide...', 'SLIDES_NEXT');
-      await refreshAll({ silent: true });
+      const tab = await ensureSlidesTab();
+      const response = await sendRuntimeMessage({
+        type: 'REMOTE_SEND_COMMAND',
+        payload: pairing ? { type: 'next' } : { type: 'next', tabId: tab.id },
+      });
+      if (!response.ok) throw new Error(response.error);
     } finally {
       setIsTransitioning(false);
     }
-  }, [runAction, refreshAll, page]);
+  }, [page, pairing]);
 
   const previousSlide = useCallback(async () => {
     const { current } = page;
@@ -200,20 +148,41 @@ export const useGoogleSlides = () => {
     }
     setIsTransitioning(true);
     try {
-      await runAction('Going to previous slide...', 'SLIDES_PREVIOUS');
-      await refreshAll({ silent: true });
+      const tab = await ensureSlidesTab();
+      const response = await sendRuntimeMessage({
+        type: 'REMOTE_SEND_COMMAND',
+        payload: pairing ? { type: 'previous' } : { type: 'previous', tabId: tab.id },
+      });
+      if (!response.ok) throw new Error(response.error);
     } finally {
       setIsTransitioning(false);
     }
-  }, [runAction, refreshAll, page]);
+  }, [page, pairing]);
 
   useEffect(() => {
-    refreshAll({ silent: true });
+    const checkPresentMode = async () => {
+      try {
+        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        const tab = tabs[0];
+        setIsPresentMode(Boolean(tab?.url?.includes('/present')));
+      } catch {
+        setIsPresentMode(false);
+      }
+    };
+    checkPresentMode();
+    const intervalId = window.setInterval(checkPresentMode, 2000);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
+    requestState();
     const intervalId = window.setInterval(() => {
-      refreshAll({ silent: true });
+      if (!pairing) {
+        requestState();
+      }
     }, 2000);
     return () => window.clearInterval(intervalId);
-  }, [refreshAll]);
+  }, [requestState, pairing]);
 
   const syncSessionState = useCallback(async () => {
     try {
@@ -285,31 +254,56 @@ export const useGoogleSlides = () => {
     }
   }, []);
 
+  const applyStateUpdate = useCallback((state: PresentationData) => {
+    if (state.current != null || state.total != null) {
+      setPage({
+        current: state.current ?? null,
+        total: state.total ?? null,
+      });
+    }
+    if (state.speakerNote !== undefined) {
+      const htmlWithBreaks = String(state.speakerNote || '')
+        .replace(/<\s*br\s*\/?>/gi, '\n')
+        .replace(/<\/\s*p\s*>/gi, '\n')
+        .replace(/<\/\s*div\s*>/gi, '\n')
+        .replace(/<\/\s*li\s*>/gi, '\n');
+      const text =
+        typeof DOMParser !== 'undefined'
+          ? (new DOMParser().parseFromString(htmlWithBreaks, 'text/html').body.textContent ?? '')
+              .replace(/\n{3,}/g, '\n\n')
+              .trim()
+          : htmlWithBreaks.replace(/<[^>]+>/g, '');
+      setSpeakerNotes(text || null);
+    }
+  }, []);
+
   useEffect(() => {
     syncSessionState();
-    const handleSessionUpdate = (message: {
+    const handleMessage = (message: {
       type?: string;
       session?: RemoteSessionPayload | null;
+      state?: PresentationData;
     }) => {
-      if (message?.type !== 'REMOTE_SESSION_UPDATED') {
-        return;
-      }
-      if (message.session) {
-        setPairing({
-          slideId: message.session.slideId,
-          password: message.session.password,
-        });
-        setPairingCode(message.session.pairingCode);
-        setPairingStatus('Connected');
-      } else {
-        setPairing(null);
-        setPairingCode(null);
-        setPairingStatus('Not connected');
+      if (message?.type === 'REMOTE_SESSION_UPDATED') {
+        if (message.session) {
+          setPairing({
+            slideId: message.session.slideId,
+            password: message.session.password,
+          });
+          setPairingCode(message.session.pairingCode);
+          setPairingStatus('Connected');
+        } else {
+          setPairing(null);
+          setPairingCode(null);
+          setPairingStatus('Not connected');
+        }
+      } else if (message?.type === 'REMOTE_STATE_UPDATED' && message.state) {
+        applyStateUpdate(message.state);
       }
     };
-    chrome.runtime.onMessage.addListener(handleSessionUpdate);
-    return () => chrome.runtime.onMessage.removeListener(handleSessionUpdate);
-  }, [syncSessionState]);
+    chrome.runtime.onMessage.addListener(handleMessage);
+    return () => chrome.runtime.onMessage.removeListener(handleMessage);
+  }, [syncSessionState, applyStateUpdate]);
 
   return {
     status,
@@ -321,6 +315,7 @@ export const useGoogleSlides = () => {
     pairingStatus,
     pairingError,
     isTransitioning,
+    isPresentMode,
     startPresentationMode,
     nextSlide,
     previousSlide,

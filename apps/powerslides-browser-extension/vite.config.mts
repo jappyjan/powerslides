@@ -1,11 +1,12 @@
 /// <reference types='vitest' />
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import { crx } from '@crxjs/vite-plugin';
 
 const manifest = {
   manifest_version: 3,
-  name: 'Slide Control Extension',
+  name: 'PowerSlides',
   version: '0.1.0',
   action: {
     default_popup: 'index.html',
@@ -45,7 +46,7 @@ export default defineConfig(() => ({
     port: 4200,
     host: true,
   },
-  plugins: [react(), crx({ manifest })],
+  plugins: [react(), tailwindcss(), crx({ manifest })],
   // Uncomment this if you are using workers.
   // worker: {
   //  plugins: [],

@@ -36,7 +36,7 @@ let session: RemoteSession | null = null;
 let lastState: PresentationData | null = null;
 let lastPublishTime = 0;
 
-const FALLBACK_POLL_INTERVAL_MS = 1500;
+const POLL_BACKUP_INTERVAL_MS = 10000;
 const POLL_CHECK_INTERVAL_MS = 400;
 const seenCommands = new Set<string>();
 const SESSION_STORAGE_KEY = 'remoteSession';
@@ -217,7 +217,7 @@ const connectSocket = (slideId: string, password: string) => {
     console.info('[powerslides-browser-extension] websocket open');
     sendSocketMessage({ type: 'join', slideId, password, createRoom: true });
     if (session) {
-      publishState(session.tabId, session.slideId);
+      syncStateAndBroadcast(session.tabId, session.slideId);
     }
   });
 
@@ -257,7 +257,7 @@ const connectSocket = (slideId: string, password: string) => {
           session
         ) {
           setTimeout(
-            () => publishState(session!.tabId, session!.slideId),
+            () => syncStateAndBroadcast(session!.tabId, session!.slideId),
             100
           );
         }
@@ -281,6 +281,15 @@ const broadcastSessionUpdate = () => {
     type: 'REMOTE_SESSION_UPDATED',
     session,
     pairingCode: session ? session.pairingCode : null,
+  });
+};
+
+const broadcastStateUpdate = (state: PresentationData) => {
+  chrome.runtime.sendMessage({
+    type: 'REMOTE_STATE_UPDATED',
+    state,
+  }).catch(() => {
+    // Popup may be closed; ignore
   });
 };
 
@@ -322,11 +331,7 @@ const handleCommand = async (command: SlideCommand, tabId: number) => {
   }
 };
 
-const publishState = async (tabId: number, slideId?: string) => {
-  if (!socket || !socketReady) {
-    console.info('[powerslides-browser-extension] publish skipped: socket not ready');
-    return;
-  }
+const syncStateAndBroadcast = async (tabId: number, slideId?: string) => {
   const presentTab = slideId ? await findPresentTab(slideId) : null;
   const tabToUse = presentTab ?? tabId;
   try {
@@ -375,14 +380,17 @@ const publishState = async (tabId: number, slideId?: string) => {
       updatedAt: Date.now(),
     };
 
-    sendSocketMessage({ type: 'state', payload: nextState } satisfies WsStateMessage);
     lastState = nextState;
     lastPublishTime = Date.now();
-    console.info('[powerslides-browser-extension] state sent', {
+    broadcastStateUpdate(nextState);
+    if (socket && socketReady) {
+      sendSocketMessage({ type: 'state', payload: nextState } satisfies WsStateMessage);
+    }
+    console.info('[powerslides-browser-extension] state synced', {
       updatedAt: nextState.updatedAt,
     });
   } catch (error) {
-    console.warn('[powerslides-browser-extension] state publish failed', error);
+    console.warn('[powerslides-browser-extension] state sync failed', error);
   }
 };
 
@@ -408,14 +416,14 @@ const startSession = async (payload: {
   lastState = null;
   connectSocket(payload.slideId, payload.password);
   await chrome.storage.session.set({ [SESSION_STORAGE_KEY]: session });
-  await publishState(payload.tabId, payload.slideId);
+  await syncStateAndBroadcast(payload.tabId, payload.slideId);
   console.info('[powerslides-browser-extension] initial state sent');
   pollIntervalId = self.setInterval(() => {
     if (!session) {
       return;
     }
-    if (Date.now() - lastPublishTime >= FALLBACK_POLL_INTERVAL_MS) {
-      publishState(session.tabId, session.slideId);
+    if (Date.now() - lastPublishTime >= POLL_BACKUP_INTERVAL_MS) {
+      syncStateAndBroadcast(session.tabId, session.slideId);
     }
   }, POLL_CHECK_INTERVAL_MS);
 
@@ -483,6 +491,49 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message?.type === 'REMOTE_STOP_SESSION') {
     stopSession()
+      .then(() => sendResponse({ ok: true }))
+      .catch((error: Error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
+  if (message?.type === 'REMOTE_SEND_COMMAND') {
+    const payload = message.payload as { type?: SlideCommandType; tabId?: number };
+    const cmdType = payload?.type;
+    if (cmdType !== 'next' && cmdType !== 'previous') {
+      sendResponse({ ok: false, error: 'Invalid command.' });
+      return false;
+    }
+    void (async () => {
+      const targetTabId = session
+        ? (await findPresentTab(session.slideId)) ?? session.tabId
+        : payload?.tabId;
+      if (typeof targetTabId !== 'number') {
+        sendResponse({ ok: false, error: 'No session and no tabId provided.' });
+        return;
+      }
+      try {
+        await handleCommand({ type: cmdType, at: Date.now(), from: 'popup' }, targetTabId);
+        const slideId = session?.slideId;
+        setTimeout(
+          () => syncStateAndBroadcast(targetTabId, slideId),
+          100
+        );
+        sendResponse({ ok: true });
+      } catch (error) {
+        sendResponse({ ok: false, error: error instanceof Error ? error.message : 'Command failed.' });
+      }
+    })();
+    return true;
+  }
+
+  if (message?.type === 'REMOTE_REQUEST_STATE') {
+    const payload = message.payload as { tabId?: number };
+    const tabId = payload?.tabId;
+    if (typeof tabId !== 'number') {
+      sendResponse({ ok: false, error: 'Missing tabId.' });
+      return false;
+    }
+    syncStateAndBroadcast(tabId)
       .then(() => sendResponse({ ok: true }))
       .catch((error: Error) => sendResponse({ ok: false, error: error.message }));
     return true;
