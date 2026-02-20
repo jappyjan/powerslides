@@ -8,16 +8,17 @@ WORKDIR /app
 
 # Copy workspace config and dependency manifests
 COPY package.json package-lock.json ./
-COPY apps/powerslides-server/package.json ./apps/powerslides-server/
-COPY libs/powerslides-shared/package.json ./libs/powerslides-shared/
+COPY apps/ ./apps/
+COPY libs/ ./libs/
 
 # Install all dependencies (including dev for build)
 RUN npm ci
 
 # Copy source and config needed for build
 COPY tsconfig.base.json tsconfig.json nx.json ./
-COPY apps/powerslides-server/ ./apps/powerslides-server/
-COPY libs/powerslides-shared/ ./libs/powerslides-shared/
+
+# Sync TypeScript project references (required in CI/Docker where nx can't prompt)
+RUN npx nx sync
 
 # Build the server (nx builds powerslides-shared first via dependsOn)
 RUN npx nx run powerslides-server:build
