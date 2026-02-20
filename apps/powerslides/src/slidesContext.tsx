@@ -13,7 +13,9 @@ import {
 import { useLogger } from "./hooks/useLogger";
 import { EvenBetterSdk } from "@jappyjan/even-better-sdk";
 
-const WEBSOCKET_URL = import.meta.env.VITE_WEBSOCKET_URL as string | undefined;
+const WEBSOCKET_URL =
+  (import.meta.env.VITE_WEBSOCKET_URL as string | undefined) ||
+  "wss://powerslides.apps.janjaap.de";
 
 const normalizeNumber = (value: unknown): number | null => {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -260,7 +262,7 @@ function useSlidesRemote(sdk: EvenBetterSdk): Omit<SlidesContextValue, 'sdk'> {
 
       logInfo("pairing", `Pairing parsed (slideId=${parsedPairingCode.payload.slideId})`);
 
-      logInfo("slides-remote", "Connecting to WebSocket");
+      logInfo("slides-remote", `Connecting to WebSocket: ${WEBSOCKET_URL}`);
 
       const socket = new WebSocket(WEBSOCKET_URL!);
       socketRef.current = socket;
