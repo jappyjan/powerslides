@@ -1,0 +1,27 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Build outputs (we rebuild in Docker)
+dist
+*.tsbuildinfo
+
+# Git and IDE
+.git
+.gitignore
+.cursor
+.vscode
+*.swp
+*.swo
+
+# Test and misc
+coverage
+.nyc_output
+*.log
+.env*
+!.env.example
+
+# Docs and non-server apps (optional - uncomment to further reduce context)
+# apps/powerslides
+# apps/powerslides-docs
+# apps/powerslides-browser-extension
