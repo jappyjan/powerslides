@@ -9,6 +9,7 @@ export function App() {
     pairingCode,
     pairingStatus,
     pairingError,
+    isTransitioning,
     startPresentationMode,
     nextSlide,
     previousSlide,
@@ -31,10 +32,20 @@ export function App() {
             </button>
           </div>
           <div className="popup__row">
-            <button type="button" className="popup__button" onClick={previousSlide}>
+            <button
+              type="button"
+              className="popup__button"
+              onClick={previousSlide}
+              disabled={isTransitioning || (page.current !== null && page.current <= 1)}
+            >
               Previous slide
             </button>
-            <button type="button" className="popup__button" onClick={nextSlide}>
+            <button
+              type="button"
+              className="popup__button"
+              onClick={nextSlide}
+              disabled={isTransitioning || (page.current !== null && page.total !== null && page.current >= page.total)}
+            >
               Next slide
             </button>
           </div>
@@ -72,6 +83,9 @@ export function App() {
               <span className="popup__value">
                 {page.current ?? '—'} / {page.total ?? '—'}
               </span>
+              {isTransitioning && (
+                <span className="popup__spinner" aria-hidden style={{ marginLeft: 8 }} />
+              )}
             </p>
             <p className="popup__note">
               {speakerNotes ?? '—'}

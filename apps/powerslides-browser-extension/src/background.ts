@@ -34,6 +34,10 @@ let reconnectAttempts = 0;
 let pollIntervalId: number | null = null;
 let session: RemoteSession | null = null;
 let lastState: PresentationData | null = null;
+let lastPublishTime = 0;
+
+const FALLBACK_POLL_INTERVAL_MS = 1500;
+const POLL_CHECK_INTERVAL_MS = 400;
 const seenCommands = new Set<string>();
 const SESSION_STORAGE_KEY = 'remoteSession';
 const tabInjectionAttempts = new Map<number, number>();
@@ -248,6 +252,15 @@ const connectSocket = (slideId: string, password: string) => {
             ? (await findPresentTab(session.slideId)) ?? session.tabId
             : session.tabId;
         await handleCommand(payload, targetTabId);
+        if (
+          (payload.type === 'next' || payload.type === 'previous') &&
+          session
+        ) {
+          setTimeout(
+            () => publishState(session!.tabId, session!.slideId),
+            100
+          );
+        }
       })();
     }
   });
@@ -279,6 +292,7 @@ const stopSession = async () => {
   closeSocket();
   session = null;
   lastState = null;
+  lastPublishTime = 0;
   seenCommands.clear();
   await chrome.storage.session.remove(SESSION_STORAGE_KEY);
   broadcastSessionUpdate();
@@ -292,6 +306,13 @@ const handleCommand = async (command: SlideCommand, tabId: number) => {
   };
   const messageType = typeMap[command.type];
   if (!messageType) {
+    return;
+  }
+  const state = lastState;
+  if (command.type === 'next' && state?.total != null && state?.current != null && state.current >= state.total) {
+    return;
+  }
+  if (command.type === 'previous' && state?.current != null && state.current <= 1) {
     return;
   }
   try {
@@ -356,6 +377,7 @@ const publishState = async (tabId: number, slideId?: string) => {
 
     sendSocketMessage({ type: 'state', payload: nextState } satisfies WsStateMessage);
     lastState = nextState;
+    lastPublishTime = Date.now();
     console.info('[powerslides-browser-extension] state sent', {
       updatedAt: nextState.updatedAt,
     });
@@ -392,8 +414,10 @@ const startSession = async (payload: {
     if (!session) {
       return;
     }
-    publishState(session.tabId, session.slideId);
-  }, 2000);
+    if (Date.now() - lastPublishTime >= FALLBACK_POLL_INTERVAL_MS) {
+      publishState(session.tabId, session.slideId);
+    }
+  }, POLL_CHECK_INTERVAL_MS);
 
   broadcastSessionUpdate();
   console.info('[powerslides-browser-extension] session started');

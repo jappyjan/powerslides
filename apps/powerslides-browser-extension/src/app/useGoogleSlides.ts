@@ -95,6 +95,7 @@ export const useGoogleSlides = () => {
   const [pairingCode, setPairingCode] = useState<string | null>(null);
   const [pairingStatus, setPairingStatus] = useState('Not connected');
   const [pairingError, setPairingError] = useState<string | null>(null);
+  const [isTransitioning, setIsTransitioning] = useState(false);
 
   const runAction = useCallback(
     async <T,>(
@@ -179,14 +180,32 @@ export const useGoogleSlides = () => {
   );
 
   const nextSlide = useCallback(async () => {
-    await runAction('Advancing slide...', 'SLIDES_NEXT');
-    await refreshAll({ silent: true });
-  }, [runAction, refreshAll]);
+    const { current, total } = page;
+    if (total !== null && current !== null && current >= total) {
+      return;
+    }
+    setIsTransitioning(true);
+    try {
+      await runAction('Advancing slide...', 'SLIDES_NEXT');
+      await refreshAll({ silent: true });
+    } finally {
+      setIsTransitioning(false);
+    }
+  }, [runAction, refreshAll, page]);
 
   const previousSlide = useCallback(async () => {
-    await runAction('Going to previous slide...', 'SLIDES_PREVIOUS');
-    await refreshAll({ silent: true });
-  }, [runAction, refreshAll]);
+    const { current } = page;
+    if (current !== null && current <= 1) {
+      return;
+    }
+    setIsTransitioning(true);
+    try {
+      await runAction('Going to previous slide...', 'SLIDES_PREVIOUS');
+      await refreshAll({ silent: true });
+    } finally {
+      setIsTransitioning(false);
+    }
+  }, [runAction, refreshAll, page]);
 
   useEffect(() => {
     refreshAll({ silent: true });
@@ -198,7 +217,9 @@ export const useGoogleSlides = () => {
 
   const syncSessionState = useCallback(async () => {
     try {
-      const response = await sendRuntimeMessage<{ session: RemoteSessionPayload | null }>({
+      const response = await sendRuntimeMessage<{
+        session: RemoteSessionPayload | null;
+      }>({
         type: 'REMOTE_GET_SESSION',
       });
       if (response?.ok && response.data?.session) {
@@ -299,6 +320,7 @@ export const useGoogleSlides = () => {
     pairingCode,
     pairingStatus,
     pairingError,
+    isTransitioning,
     startPresentationMode,
     nextSlide,
     previousSlide,

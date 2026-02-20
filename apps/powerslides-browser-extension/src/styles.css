@@ -123,3 +123,37 @@ body {
 .popup__button:hover {
   background: #0ea5e9;
 }
+
+.popup__button--secondary {
+  background: #475569;
+}
+
+.popup__button--secondary:hover {
+  background: #64748b;
+}
+
+.popup__button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.popup__button:disabled:hover {
+  background: #38bdf8;
+}
+
+@keyframes popup-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.popup__spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: popup-spin 0.8s linear infinite;
+  vertical-align: middle;
+}

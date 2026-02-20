@@ -61,12 +61,15 @@ const normalizeState = (data: unknown): PresentationData | null => {
   };
 };
 
+const TRANSITION_TIMEOUT_MS = 3000;
+
 export type SlidesContextValue = {
   sdk: EvenBetterSdk;
   isConnected: boolean;
   connect: (pairingCode: string) => Promise<void>;
   disconnect: () => void;
   isConnecting: boolean;
+  isTransitioning: boolean;
   currentSlide: number | null;
   totalSlides: number | null;
   speakerNote: string | null;
@@ -81,6 +84,7 @@ export const SlidesContext = createContext<SlidesContextValue>({
   connect: async (_pairingCode: string) => { },
   disconnect: () => { },
   isConnecting: false,
+  isTransitioning: false,
   currentSlide: null,
   totalSlides: null,
   speakerNote: null,
@@ -130,11 +134,19 @@ export function useSlidesContext(): SlidesContextValue {
 
 function useSlidesRemote(sdk: EvenBetterSdk): Omit<SlidesContextValue, 'sdk'> {
   const [presentationData, setPresentationData] = useState<PresentationData | null>(null);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const transitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { info: logInfo, error: logError, warn: logWarn, debug: logDebug } = useLogger();
 
   const socketRef = useRef<WebSocket | null>(null);
 
+  const clearTransitionTimeout = useCallback(() => {
+    if (transitionTimeoutRef.current) {
+      clearTimeout(transitionTimeoutRef.current);
+      transitionTimeoutRef.current = null;
+    }
+  }, []);
 
   const sendSocketMessage = useCallback(
     (message: WsMessage) => {
@@ -169,12 +181,33 @@ function useSlidesRemote(sdk: EvenBetterSdk): Omit<SlidesContextValue, 'sdk'> {
   );
 
   const goToNextSlide = useCallback(async () => {
+    const current = presentationData?.current ?? null;
+    const total = presentationData?.total ?? null;
+    if (total !== null && current !== null && current >= total) {
+      return;
+    }
+    setIsTransitioning(true);
+    clearTransitionTimeout();
+    transitionTimeoutRef.current = setTimeout(() => {
+      setIsTransitioning(false);
+      transitionTimeoutRef.current = null;
+    }, TRANSITION_TIMEOUT_MS);
     await sendCommand("next");
-  }, [sendCommand]);
+  }, [sendCommand, clearTransitionTimeout, presentationData?.current, presentationData?.total]);
 
   const goToPreviousSlide = useCallback(async () => {
+    const current = presentationData?.current ?? null;
+    if (current !== null && current <= 1) {
+      return;
+    }
+    setIsTransitioning(true);
+    clearTransitionTimeout();
+    transitionTimeoutRef.current = setTimeout(() => {
+      setIsTransitioning(false);
+      transitionTimeoutRef.current = null;
+    }, TRANSITION_TIMEOUT_MS);
     await sendCommand("previous");
-  }, [sendCommand]);
+  }, [sendCommand, clearTransitionTimeout, presentationData?.current]);
 
   const handleSocketMessage = useCallback((event: MessageEvent) => {
     if (!event.data || typeof event.data !== "string") {
@@ -199,9 +232,11 @@ function useSlidesRemote(sdk: EvenBetterSdk): Omit<SlidesContextValue, 'sdk'> {
       return false;
     }
 
+    setIsTransitioning(false);
+    clearTransitionTimeout();
     setPresentationData(next);
     return true;
-  }, [logWarn]);
+  }, [logWarn, clearTransitionTimeout]);
 
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -281,6 +316,8 @@ function useSlidesRemote(sdk: EvenBetterSdk): Omit<SlidesContextValue, 'sdk'> {
   }, [logInfo, logError, sendJoin, handleSocketMessage, sdk, setIsConnecting]);
 
   const disconnect = useCallback(() => {
+    clearTransitionTimeout();
+    setIsTransitioning(false);
     const socket = socketRef.current;
     if (socket) {
       socket.removeEventListener("close", () => undefined);
@@ -291,7 +328,7 @@ function useSlidesRemote(sdk: EvenBetterSdk): Omit<SlidesContextValue, 'sdk'> {
     }
     socketRef.current = null;
     setIsConnected(false);
-  }, []);
+  }, [clearTransitionTimeout]);
 
   useEffect(() => {
     if (isConnected) {
@@ -312,6 +349,7 @@ function useSlidesRemote(sdk: EvenBetterSdk): Omit<SlidesContextValue, 'sdk'> {
     disconnect,
     isConnected,
     isConnecting,
+    isTransitioning,
     currentSlide: presentationData?.current ?? null,
     totalSlides: presentationData?.total ?? null,
     speakerNote: presentationData?.speakerNote ?? null,
