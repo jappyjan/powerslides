@@ -1,0 +1,16 @@
+@import 'tailwindcss';
+@import '@jappyjan/even-realities-ui/styles';
+
+:root {
+  --docs-primary: #0d9488;
+  --docs-primary-hover: #0f766e;
+  --docs-muted: #64748b;
+  --docs-bg: #f8fafc;
+  --docs-card: #ffffff;
+  --docs-border: #e2e8f0;
+}
+
+body {
+  font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  background-color: var(--docs-bg);
+}

@@ -15,5 +15,8 @@
     {
       "path": "./apps/powerslides-server"
     },
+    {
+      "path": "./apps/powerslides-docs"
+    }
   ]
 }

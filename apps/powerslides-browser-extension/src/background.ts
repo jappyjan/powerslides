@@ -21,7 +21,10 @@ type RuntimeResponse<T = unknown> = {
   error?: string;
 };
 
-const WEBSOCKET_URL = import.meta.env.VITE_WEBSOCKET_URL as string | undefined;
+const DEFAULT_WEBSOCKET_URL = 'wss://powerslides.apps.janjaap.de';
+const WEBSOCKET_URL =
+  (import.meta.env.VITE_WEBSOCKET_URL as string | undefined) ||
+  DEFAULT_WEBSOCKET_URL;
 const SOCKET_RECONNECT_BASE_DELAY_MS = 1000;
 const SOCKET_RECONNECT_MAX_DELAY_MS = 10000;
 
@@ -43,13 +46,7 @@ const SESSION_STORAGE_KEY = 'remoteSession';
 const tabInjectionAttempts = new Map<number, number>();
 const tabInjectionPromises = new Map<number, Promise<void>>();
 
-const getWebSocketUrl = () => {
-  if (!WEBSOCKET_URL) {
-    console.warn('[powerslides-browser-extension] missing WebSocket config');
-    throw new Error('Missing WebSocket configuration.');
-  }
-  return WEBSOCKET_URL;
-};
+const getWebSocketUrl = () => WEBSOCKET_URL;
 
 /** Find the tab showing this slide deck in present mode. Commands must go to the present tab, not the edit tab. */
 const findPresentTab = async (slideId: string): Promise<number | null> => {

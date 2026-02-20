@@ -1,0 +1,19 @@
+{
+  "name": "powerslides-browser-extension",
+  "targets": {
+    "bundle": {
+      "dependsOn": ["build"],
+      "cache": true,
+      "inputs": ["production", "^production"],
+      "outputs": ["{projectRoot}/powerslides-extension.zip"],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "apps/powerslides-browser-extension",
+        "command": "cd dist && zip -r ../powerslides-extension.zip . -x '*.map'"
+      },
+      "metadata": {
+        "description": "Bundle extension for Chrome Web Store (creates powerslides-extension.zip)"
+      }
+    }
+  }
+}

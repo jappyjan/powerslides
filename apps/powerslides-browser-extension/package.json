@@ -2,12 +2,16 @@
   "name": "@jappyjan/powerslides-browser-extension",
   "version": "0.0.1",
   "private": true,
+  "scripts": {
+    "generate-icons": "node scripts/generate-icons.mjs"
+  },
   "dependencies": {
     "@jappyjan/even-realities-ui": "^0.0.9",
     "@jappyjan/powerslides-shared": "*"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.18",
+    "pngjs": "^7.0.0",
     "tailwindcss": "^4.1.18"
   }
 }
