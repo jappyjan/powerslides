@@ -264,23 +264,6 @@ export const useGoogleSlides = () => {
     }
   }, []);
 
-  const startPresentationInGlasses = useCallback(async () => {
-    setStatus('Starting presentation...');
-    setError(null);
-    try {
-      const response = await sendRuntimeMessage({
-        type: 'REMOTE_START_PRESENTATION',
-      });
-      if (!response.ok) {
-        throw new Error(response.error || 'Unable to start presentation.');
-      }
-      setStatus('Ready');
-    } catch (err) {
-      setStatus('Error');
-      setError(err instanceof Error ? err.message : 'Unknown error.');
-    }
-  }, []);
-
   useEffect(() => {
     syncSessionState();
     const handleSessionUpdate = (message: {
@@ -321,6 +304,5 @@ export const useGoogleSlides = () => {
     previousSlide,
     startRemoteSession,
     stopRemoteSession,
-    startPresentationInGlasses,
   };
 };

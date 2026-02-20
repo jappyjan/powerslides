@@ -20,8 +20,12 @@ const manifest = {
       js: ['src/content.ts'],
     },
   ],
-  permissions: ['activeTab', 'storage', 'scripting'],
-  host_permissions: ['http://localhost:4200/*', 'http://127.0.0.1:4200/*'],
+  permissions: ['activeTab', 'storage', 'scripting', 'tabs'],
+  host_permissions: [
+    'http://localhost:4200/*',
+    'http://127.0.0.1:4200/*',
+    'https://docs.google.com/*',
+  ],
   web_accessible_resources: [
     {
       resources: ['getViewerDataScript.js'],

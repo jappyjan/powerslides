@@ -8,10 +8,9 @@ export type PresentationData = {
   speakerNote: string | null;
   title: string | null;
   updatedAt: number | null;
-  presentationStartedAt: number | null;
 };
 
-export type SlideCommandType = 'next' | 'previous' | 'open_present' | 'start_presentation';
+export type SlideCommandType = 'next' | 'previous' | 'open_present';
 
 export type SlideCommand = {
   type: SlideCommandType;

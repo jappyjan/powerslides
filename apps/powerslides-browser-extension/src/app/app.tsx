@@ -14,7 +14,6 @@ export function App() {
     previousSlide,
     startRemoteSession,
     stopRemoteSession,
-    startPresentationInGlasses,
   } = useGoogleSlides();
 
   return (
@@ -49,16 +48,6 @@ export function App() {
             </button>
             <button type="button" className="popup__button" onClick={stopRemoteSession}>
               Stop remote session
-            </button>
-          </div>
-          <div className="popup__row">
-            <button
-              type="button"
-              className="popup__button"
-              onClick={startPresentationInGlasses}
-              disabled={!pairingCode}
-            >
-              Start presentation in glasses
             </button>
           </div>
           <div className="popup__card">

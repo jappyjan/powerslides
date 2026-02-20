@@ -1,18 +1,12 @@
 import { Button, Card, CardContent, CardFooter, CardHeader } from "@jappyjan/even-realities-ui";
 import { useSlidesContext } from "../slidesContext";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { EvenBetterElementSize, EvenBetterTextElement } from "@jappyjan/even-better-sdk";
 import { useLogger } from "../hooks/useLogger";
-import { EvenHubEvent } from "@evenrealities/even_hub_sdk";
+import { EvenHubEvent, OsEventTypeList } from "@evenrealities/even_hub_sdk";
 
-function formatDuration(durationMs: number) {
-    const minutes = Math.floor(durationMs / 60000);
-    const seconds = Math.floor((durationMs % 60000) / 1000);
-    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-}
-
-function formatPagination(currentSlide: number, totalSlides: number, presentationDurationMs: number) {
-    return `${currentSlide}/${totalSlides} • ${formatDuration(presentationDurationMs)}`;
+function formatPagination(currentSlide: number, totalSlides: number) {
+    return `${currentSlide}/${totalSlides}`;
 }
 
 export function SlideControlsV2() {
@@ -21,16 +15,14 @@ export function SlideControlsV2() {
         speakerNote,
         totalSlides,
         currentSlide,
-        presentationStartedAt,
         goToNextSlide,
         goToPreviousSlide,
-        startPresentation,
         sdk
     } = useSlidesContext();
 
     const { info: logInfo } = useLogger();
 
-    const { speakerNotesElement, paginationElement, presentationPage, startPresentationPage, startPresentationElement } = useMemo(() => {
+    const { speakerNotesElement, paginationElement, presentationPage } = useMemo(() => {
         logInfo("slideControlsV2", "Creating presentation page");
         const presentationPage = sdk.createPage("presentation");
 
@@ -51,7 +43,7 @@ export function SlideControlsV2() {
 
         logInfo("slideControlsV2", "Creating pagination element");
         const paginationElement = presentationPage
-            .addTextElement(formatPagination(0, 0, 0))
+            .addTextElement(formatPagination(0, 0))
             .setPosition((position) => {
                 position.setX(0);
                 position.setY(238);
@@ -61,42 +53,31 @@ export function SlideControlsV2() {
                 size.setHeight(50);
             }) as EvenBetterTextElement;
 
-        logInfo("slideControlsV2", "Creating start presentation page");
-        const startPresentationPage = sdk.createPage("start-presentation");
-
-        logInfo("slideControlsV2", "Creating start presentation element");
-        const startPresentationElement = startPresentationPage.addListElement(["Click to start presentation"]);
-
         return {
             sdk,
             speakerNotesElement,
             paginationElement,
             presentationPage,
-            startPresentationPage,
-            startPresentationElement
         };
-    }, [sdk, logInfo]);
+    }, [sdk]);
 
 
     const handleEvenHubEvent = useCallback((event: EvenHubEvent) => {
         logInfo("slideControlsV2", `Even hub event: ${JSON.stringify(event)}`);
-        if (
-            event.listEvent?.containerID === startPresentationElement.id &&
-            event.listEvent.eventType === OsEventTypeList.CLICK_EVENT
-        ) {
-            startPresentation();
-        }
+
 
         if (event.textEvent?.containerID === speakerNotesElement.id) {
             if (event.textEvent.eventType === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
+                logInfo("slideControlsV2", "Scrolling bottom event, going to next slide");
                 goToNextSlide();
             }
 
             if (event.textEvent.eventType === OsEventTypeList.SCROLL_TOP_EVENT) {
+                logInfo("slideControlsV2", "Scrolling top event, going to previous slide");
                 goToPreviousSlide();
             }
         }
-    }, [startPresentation, goToNextSlide, goToPreviousSlide, speakerNotesElement.id]);
+    }, [goToNextSlide, goToPreviousSlide, speakerNotesElement.id]);
 
     useEffect(() => {
         logInfo("slideControlsV2", "Adding event listener");
@@ -104,43 +85,13 @@ export function SlideControlsV2() {
         return () => sdk.removeEventListener(handleEvenHubEvent);
     }, [handleEvenHubEvent]);
 
-    useEffect(() => {
-        logInfo("slideControlsV2", "Rendering start presentation page");
-        startPresentationPage.render();
-    }, [startPresentationPage, logInfo]);
 
     useEffect(() => {
-        if (!presentationStartedAt) {
-            speakerNotesElement.setContent("Click to start presentation");
-        } else {
-            speakerNotesElement.setContent(speakerNote ?? "");
-        }
-
-        logInfo("slideControlsV2", `Updating speaker notes, startedAt: ${presentationStartedAt}`);
+        speakerNotesElement.setContent(speakerNote ?? "");
+        paginationElement.setContent(formatPagination(currentSlide ?? 0, totalSlides ?? 0));
+        logInfo("slideControlsV2", `Updating content, calling render (slide ${currentSlide}/${totalSlides})`);
         presentationPage.render();
-    }, [speakerNote, presentationStartedAt, speakerNotesElement, presentationPage, logInfo]);
-
-    const [now, setNow] = useState<number>(Date.now());
-
-    useEffect(() => {
-        const intervalId = setInterval(() => {
-            setNow(Date.now());
-        }, 1000);
-        return () => clearInterval(intervalId);
-    }, []);
-
-    useEffect(() => {
-        if (!presentationStartedAt) {
-            return;
-        }
-
-        const durationMs = now - presentationStartedAt;
-        paginationElement.setContent(formatPagination(currentSlide ?? 0, totalSlides ?? 0, durationMs));
-
-        logInfo("slideControlsV2", `Updating pagination, currentSlide: ${currentSlide}, totalSlides: ${totalSlides}, durationMs: ${durationMs}`);
-
-        presentationPage.render();
-    }, [currentSlide, totalSlides, presentationStartedAt, paginationElement, presentationPage, now, logInfo]);
+    }, [speakerNote, currentSlide, totalSlides, speakerNotesElement, paginationElement, presentationPage, logInfo]);
 
     return (
         <div>
@@ -152,17 +103,12 @@ export function SlideControlsV2() {
                     {speakerNote}
                 </CardContent>
                 <CardFooter className="flex gap-3 flex-row justify-between">
-                    {presentationStartedAt ? (<>
-                        <Button variant="default" onClick={goToPreviousSlide}>
-                            Previous
-                        </Button>
-                        <Button variant="primary" onClick={goToNextSlide}>
-                            Next
-                        </Button></>) : (
-                        <Button variant="primary" onClick={startPresentation}>
-                            Start Presentation
-                        </Button>
-                    )}
+                    <Button variant="default" onClick={goToPreviousSlide}>
+                        Previous
+                    </Button>
+                    <Button variant="primary" onClick={goToNextSlide}>
+                        Next
+                    </Button>
                 </CardFooter>
             </Card>
         </div>

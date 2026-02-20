@@ -1,42 +1,21 @@
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { formatPairingCode } from "@jappyjan/powerslides-shared";
 import { Button, Card, CardContent, CardFooter, CardHeader, Input, Text } from "@jappyjan/even-realities-ui";
-import { useLogger } from "../hooks/useLogger";
-import { EvenBetterElementSize, EvenBetterTextElement } from "@jappyjan/even-better-sdk";
 import { useSlidesContext } from "../slidesContext";
 
 
 export function SlideCodeInput() {
-    const { info: logInfo } = useLogger();
-
     const [nextPairingCode, setNextPairingCode] = useState<string>("");
 
-    const { connect, isConnecting, sdk } = useSlidesContext();
+    const { connect, isConnecting } = useSlidesContext();
 
     const handleConnect = async () => {
+        if (!nextPairingCode) { return; }
+
         await connect(nextPairingCode);
     };
 
-    const glassesPage = useMemo(() => sdk.createPage("connect"), [sdk]);
-    const textElement = useMemo(() => {
-        const element = glassesPage.addTextElement("Enter pairing code in APP");
-        element.setSize((size) => {
-            size.setWidth(EvenBetterElementSize.MAX_WIDTH);
-            size.setHeight(EvenBetterElementSize.MAX_HEIGHT);
-        });
-        return element as EvenBetterTextElement;
-    }, [glassesPage]);
 
-    useEffect(() => {
-        logInfo("slideCodeInput", `isConnectin: ${isConnecting}`);
-        if (isConnecting) {
-            textElement.setContent("Connecting...");
-        } else {
-            textElement.setContent("Enter pairing code in APP");
-        }
-
-        glassesPage.render();
-    }, [textElement, glassesPage, isConnecting, logInfo])
 
     return (<div className="flex flex-col gap-layout-section">
         <Card>

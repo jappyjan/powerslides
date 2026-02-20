@@ -33,7 +33,6 @@ let reconnectTimeoutId: number | null = null;
 let reconnectAttempts = 0;
 let pollIntervalId: number | null = null;
 let session: RemoteSession | null = null;
-let presentationStartedAt: number | null = null;
 let lastState: PresentationData | null = null;
 const seenCommands = new Set<string>();
 const SESSION_STORAGE_KEY = 'remoteSession';
@@ -46,6 +45,14 @@ const getWebSocketUrl = () => {
     throw new Error('Missing WebSocket configuration.');
   }
   return WEBSOCKET_URL;
+};
+
+/** Find the tab showing this slide deck in present mode. Commands must go to the present tab, not the edit tab. */
+const findPresentTab = async (slideId: string): Promise<number | null> => {
+  const tabs = await chrome.tabs.query({
+    url: `https://docs.google.com/presentation/d/${slideId}/present*`,
+  });
+  return tabs[0]?.id ?? null;
 };
 
 const sendToTabOnce = async <T,>(
@@ -193,19 +200,6 @@ const sendSocketMessage = (message: WsMessage) => {
   socket.send(JSON.stringify(message));
 };
 
-const startPresentation = async (reason: string) => {
-  if (!session) {
-    console.warn('[powerslides-browser-extension] start presentation skipped: no session', { reason });
-    return;
-  }
-  if (presentationStartedAt) {
-    return;
-  }
-  presentationStartedAt = Date.now();
-  console.info('[powerslides-browser-extension] presentation started', { reason, presentationStartedAt });
-  await publishState(session.tabId);
-};
-
 const connectSocket = (slideId: string, password: string) => {
   const url = getWebSocketUrl();
   closeSocket();
@@ -219,7 +213,7 @@ const connectSocket = (slideId: string, password: string) => {
     console.info('[powerslides-browser-extension] websocket open');
     sendSocketMessage({ type: 'join', slideId, password, createRoom: true });
     if (session) {
-      publishState(session.tabId);
+      publishState(session.tabId, session.slideId);
     }
   });
 
@@ -248,11 +242,13 @@ const connectSocket = (slideId: string, password: string) => {
         return;
       }
       seenCommands.add(key);
-      if (payload.type === 'start_presentation') {
-        startPresentation('glasses');
-        return;
-      }
-      handleCommand(payload, session.tabId);
+      void (async () => {
+        const targetTabId =
+          payload.type === 'next' || payload.type === 'previous'
+            ? (await findPresentTab(session.slideId)) ?? session.tabId
+            : session.tabId;
+        await handleCommand(payload, targetTabId);
+      })();
     }
   });
 
@@ -282,7 +278,6 @@ const stopSession = async () => {
   }
   closeSocket();
   session = null;
-  presentationStartedAt = null;
   lastState = null;
   seenCommands.clear();
   await chrome.storage.session.remove(SESSION_STORAGE_KEY);
@@ -306,20 +301,22 @@ const handleCommand = async (command: SlideCommand, tabId: number) => {
   }
 };
 
-const publishState = async (tabId: number) => {
+const publishState = async (tabId: number, slideId?: string) => {
   if (!socket || !socketReady) {
     console.info('[powerslides-browser-extension] publish skipped: socket not ready');
     return;
   }
+  const presentTab = slideId ? await findPresentTab(slideId) : null;
+  const tabToUse = presentTab ?? tabId;
   try {
     const results = await Promise.allSettled([
-      sendToTab<{ current: number | null; total: number | null }>(tabId, {
+      sendToTab<{ current: number | null; total: number | null }>(tabToUse, {
         type: 'SLIDES_GET_COUNTS',
       }),
-      sendToTab<{ speakerNote: string | null }>(tabId, {
+      sendToTab<{ speakerNote: string | null }>(tabToUse, {
         type: 'SLIDES_GET_SPEAKER_NOTES',
       }),
-      sendToTab<{ title: string | null }>(tabId, {
+      sendToTab<{ title: string | null }>(tabToUse, {
         type: 'SLIDES_GET_TITLE',
       }),
     ]);
@@ -355,7 +352,6 @@ const publishState = async (tabId: number) => {
       speakerNote: notes?.speakerNote ?? lastState?.speakerNote ?? null,
       title: title?.title ?? lastState?.title ?? null,
       updatedAt: Date.now(),
-      presentationStartedAt,
     };
 
     sendSocketMessage({ type: 'state', payload: nextState } satisfies WsStateMessage);
@@ -387,17 +383,16 @@ const startSession = async (payload: {
     startedAt: Date.now(),
     pairingCode: payload.pairingCode,
   };
-  presentationStartedAt = null;
   lastState = null;
   connectSocket(payload.slideId, payload.password);
   await chrome.storage.session.set({ [SESSION_STORAGE_KEY]: session });
-  await publishState(payload.tabId);
+  await publishState(payload.tabId, payload.slideId);
   console.info('[powerslides-browser-extension] initial state sent');
   pollIntervalId = self.setInterval(() => {
     if (!session) {
       return;
     }
-    publishState(session.tabId);
+    publishState(session.tabId, session.slideId);
   }, 2000);
 
   broadcastSessionUpdate();
@@ -464,13 +459,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message?.type === 'REMOTE_STOP_SESSION') {
     stopSession()
-      .then(() => sendResponse({ ok: true }))
-      .catch((error: Error) => sendResponse({ ok: false, error: error.message }));
-    return true;
-  }
-
-  if (message?.type === 'REMOTE_START_PRESENTATION') {
-    startPresentation('popup')
       .then(() => sendResponse({ ok: true }))
       .catch((error: Error) => sendResponse({ ok: false, error: error.message }));
     return true;

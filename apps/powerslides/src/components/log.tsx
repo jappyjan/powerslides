@@ -12,7 +12,7 @@ export function Log() {
         alert("Logs copied to clipboard");
     }, [logLines]);
 
-    return (<div className="max-h-[200px] overflow-y-auto mt-4">
+    return (<div className="max-h-[400px] overflow-y-auto mt-4">
         <Text variant="title-2">Logs</Text>
         <IconButton aria-label="Icon button" onClick={copyLogsToClipboard}>
             <CopyIcon

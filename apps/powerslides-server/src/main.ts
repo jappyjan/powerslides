@@ -73,9 +73,21 @@ const removeFromRoom = (socket: WebSocket) => {
   }
 };
 
-wss.on("connection", (socket) => {
+const getSocketInfo = (req: http.IncomingMessage) => {
+  const forwarded = req.headers["x-forwarded-for"];
+  const ip = Array.isArray(forwarded)
+    ? forwarded[0]
+    : forwarded?.split(",")[0]?.trim() ?? req.socket.remoteAddress ?? "unknown";
+  const userAgent = req.headers["user-agent"] ?? "unknown";
+  return { ip, userAgent };
+};
+
+const logSocketPrefix = (socketId: number) => `[powerslides-server] ws id=${socketId}`;
+
+wss.on("connection", (socket, req) => {
   const socketId = ++socketSequence;
-  console.info(`[powerslides-server] ws connected id=${socketId}`);
+  const { ip, userAgent } = getSocketInfo(req);
+  console.info(`${logSocketPrefix(socketId)} connected ip=${ip} ua=${userAgent}`);
 
   socket.on("message", async (data) => {
     const raw = typeof data === "string" ? data : data.toString();
@@ -83,45 +95,46 @@ wss.on("connection", (socket) => {
     try {
       message = JSON.parse(raw) as WsMessage;
     } catch {
-      console.warn(`[powerslides-server] ws invalid json id=${socketId}`);
+      console.warn(`${logSocketPrefix(socketId)} invalid json size=${raw.length}`);
       return;
     }
 
     if (message.type === "join") {
       if (!message.slideId || typeof message.slideId !== "string") {
-        console.warn(`[powerslides-server] ws join missing slideId id=${socketId}`);
+        console.warn(`${logSocketPrefix(socketId)} join missing slideId`);
         return;
       }
 
       if (!message.password || typeof message.password !== "string") {
-        console.warn(`[powerslides-server] ws join missing password id=${socketId}`);
+        console.warn(`${logSocketPrefix(socketId)} join missing password slideId=${message.slideId}`);
         return;
       }
 
       if (!message.createRoom && !rooms.has(message.slideId)) {
         console.warn(
-          `[powerslides-server] ws join room missing id=${socketId} slideId=${message.slideId}`,
+          `${logSocketPrefix(socketId)} join room missing slideId=${message.slideId}`,
         );
         socket.close();
         return;
       }
 
       try {
+        const roomExisted = rooms.has(message.slideId);
         const room = getOrCreateRoom(message.slideId, message.password);
         room.clients.add(socket);
         socketRooms.set(socket, message.slideId);
         console.info(
-          `[powerslides-server] ws joined id=${socketId} slideId=${message.slideId} clients=${room.clients.size}`,
+          `${logSocketPrefix(socketId)} joined slideId=${message.slideId} clients=${room.clients.size} created=${!roomExisted}`,
         );
         if (room.lastState) {
           sendMessage(socket, { type: "state", payload: room.lastState });
           console.info(
-            `[powerslides-server] ws sent lastState id=${socketId} slideId=${message.slideId}`,
+            `${logSocketPrefix(socketId)} sent lastState slideId=${message.slideId}`,
           );
         }
       } catch (error) {
         console.warn(
-          `[powerslides-server] ws join failed id=${socketId} slideId=${message.slideId}`,
+          `${logSocketPrefix(socketId)} join failed slideId=${message.slideId}`,
         );
         socket.close();
         return;
@@ -131,13 +144,13 @@ wss.on("connection", (socket) => {
 
     const roomName = socketRooms.get(socket);
     if (!roomName) {
-      console.warn(`[powerslides-server] ws message without room id=${socketId}`);
+      console.warn(`${logSocketPrefix(socketId)} message without room type=${message.type}`);
       socket.close();
       return;
     }
     const room = rooms.get(roomName);
     if (!room) {
-      console.warn(`[powerslides-server] ws room missing id=${socketId} room=${roomName}`);
+      console.warn(`${logSocketPrefix(socketId)} room missing room=${roomName}`);
       socket.close();
       return;
     }
@@ -145,13 +158,13 @@ wss.on("connection", (socket) => {
     if (message.type === "state") {
       const payload = (message as WsStateMessage).payload;
       if (!payload) {
-        console.warn(`[powerslides-server] ws state missing payload id=${socketId}`);
+        console.warn(`${logSocketPrefix(socketId)} state missing payload room=${roomName}`);
         return;
       }
       room.lastState = payload;
       room.extension = socket;
       console.info(
-        `[powerslides-server] ws state id=${socketId} room=${roomName} clients=${room.clients.size}`,
+        `${logSocketPrefix(socketId)} state room=${roomName} clients=${room.clients.size}`,
       );
       broadcast(room, message);
       return;
@@ -161,20 +174,41 @@ wss.on("connection", (socket) => {
       const payload = (message as WsCommandMessage).payload;
       if (!payload || !room.extension) {
         console.warn(
-          `[powerslides-server] ws command ignored id=${socketId} room=${roomName} hasExtension=${Boolean(
+          `${logSocketPrefix(socketId)} command ignored room=${roomName} hasExtension=${Boolean(
             room.extension,
           )}`,
         );
         return;
       }
-      console.info(`[powerslides-server] ws command id=${socketId} room=${roomName}`);
+      console.info(`${logSocketPrefix(socketId)} command room=${roomName}`);
       sendMessage(room.extension, message);
+      return;
     }
+
+    const messageType = (message as { type?: string }).type ?? "unknown";
+    console.warn(
+      `${logSocketPrefix(socketId)} unknown message type=${messageType} room=${roomName}`,
+    );
   });
 
   socket.on("close", () => {
+    const roomName = socketRooms.get(socket);
     removeFromRoom(socket);
-    console.info(`[powerslides-server] ws closed id=${socketId}`);
+    if (roomName) {
+      const room = rooms.get(roomName);
+      console.info(
+        `${logSocketPrefix(socketId)} closed room=${roomName} remaining=${room?.clients.size ?? 0}`,
+      );
+      if (!room) {
+        console.info(`${logSocketPrefix(socketId)} room deleted room=${roomName}`);
+      }
+    } else {
+      console.info(`${logSocketPrefix(socketId)} closed`);
+    }
+  });
+
+  socket.on("error", (error) => {
+    console.warn(`${logSocketPrefix(socketId)} error message=${error.message}`);
   });
 });
 

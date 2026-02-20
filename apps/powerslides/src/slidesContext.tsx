@@ -58,7 +58,6 @@ const normalizeState = (data: unknown): PresentationData | null => {
     speakerNote: normalizeSpeakerNote(payload.speakerNote),
     title: typeof payload.title === "string" ? payload.title : null,
     updatedAt: normalizeNumber(payload.updatedAt),
-    presentationStartedAt: normalizeNumber(payload.presentationStartedAt),
   };
 };
 
@@ -72,10 +71,8 @@ export type SlidesContextValue = {
   totalSlides: number | null;
   speakerNote: string | null;
   title: string | null;
-  presentationStartedAt: number | null;
   goToNextSlide: () => Promise<void>;
   goToPreviousSlide: () => Promise<void>;
-  startPresentation: () => Promise<void>;
 };
 
 export const SlidesContext = createContext<SlidesContextValue>({
@@ -88,10 +85,8 @@ export const SlidesContext = createContext<SlidesContextValue>({
   totalSlides: null,
   speakerNote: null,
   title: null,
-  presentationStartedAt: null,
   goToNextSlide: async () => { },
   goToPreviousSlide: async () => { },
-  startPresentation: async () => { },
 });
 
 export interface SlidesContextProviderProps extends PropsWithChildren {
@@ -181,11 +176,6 @@ function useSlidesRemote(sdk: EvenBetterSdk): Omit<SlidesContextValue, 'sdk'> {
     await sendCommand("previous");
   }, [sendCommand]);
 
-  const startPresentation = useCallback(async () => {
-    logInfo("slides-remote", "Start presentation requested");
-    await sendCommand("start_presentation");
-  }, [sendCommand]);
-
   const handleSocketMessage = useCallback((event: MessageEvent) => {
     if (!event.data || typeof event.data !== "string") {
       return false;
@@ -211,7 +201,7 @@ function useSlidesRemote(sdk: EvenBetterSdk): Omit<SlidesContextValue, 'sdk'> {
 
     setPresentationData(next);
     return true;
-  }, [setPresentationData, logWarn]);
+  }, [logWarn]);
 
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -326,9 +316,7 @@ function useSlidesRemote(sdk: EvenBetterSdk): Omit<SlidesContextValue, 'sdk'> {
     totalSlides: presentationData?.total ?? null,
     speakerNote: presentationData?.speakerNote ?? null,
     title: presentationData?.title ?? null,
-    presentationStartedAt: presentationData?.presentationStartedAt ?? null,
     goToNextSlide,
     goToPreviousSlide,
-    startPresentation,
   };
 }
