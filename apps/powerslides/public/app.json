@@ -1,0 +1,21 @@
+{
+  "package_id": "de.janjaap.powerslides",
+  "edition": "202601",
+  "name": "Powerslides",
+  "version": "0.1.0",
+  "min_app_version": "2.0.0",
+  "min_sdk_version": "0.0.7",
+  "entrypoint": "index.html",
+  "permissions": [
+    {
+      "name": "network",
+      "desc": "This app needs to access the network in order to connect to the powerslides server and communicate with your google slides",
+      "whitelist": [
+        "wss://powerslides.apps.janjaap.de"
+      ]
+    }
+  ],
+  "supported_languages": [
+    "en"
+  ]
+}
