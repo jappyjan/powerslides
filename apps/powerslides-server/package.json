@@ -2,5 +2,7 @@
   "name": "@jappyjan/powerslides-server",
   "version": "0.0.1",
   "private": true,
-  "dependencies": {}
+  "dependencies": {
+    "@jappyjan/even-realities-ui": "^0.0.9"
+  }
 }
