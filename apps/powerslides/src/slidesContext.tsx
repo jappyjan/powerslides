@@ -11,12 +11,14 @@ import {
   parsePairingCodeResult,
   PairingPayload,
 } from "@jappyjan/powerslides-shared";
+import { storageGetRaw, storageSetRaw } from "even-toolkit/storage";
 import { useLogger } from "./hooks/useLogger";
-import { EvenBetterSdk } from "@jappyjan/even-better-sdk";
 
 const WEBSOCKET_URL =
   (import.meta.env.VITE_WEBSOCKET_URL as string | undefined) ||
   "wss://powerslides.apps.janjaap.de";
+
+const PAIRING_STORAGE_KEY = "pairingCode";
 
 const normalizeNumber = (value: unknown): number | null => {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -47,7 +49,6 @@ const normalizeState = (data: unknown): PresentationData | null => {
 const TRANSITION_TIMEOUT_MS = 3000;
 
 export type SlidesContextValue = {
-  sdk: EvenBetterSdk;
   isConnected: boolean;
   connect: (pairingCode: string) => Promise<void>;
   disconnect: () => void;
@@ -61,50 +62,34 @@ export type SlidesContextValue = {
   goToPreviousSlide: () => Promise<void>;
 };
 
+const noopAsync = async () => {
+  /* default context value */
+};
+const noop = () => {
+  /* default context value */
+};
+
 export const SlidesContext = createContext<SlidesContextValue>({
-  sdk: null as unknown as EvenBetterSdk,
   isConnected: false,
-  connect: async (_pairingCode: string) => { },
-  disconnect: () => { },
+  connect: noopAsync,
+  disconnect: noop,
   isConnecting: false,
   isTransitioning: false,
   currentSlide: null,
   totalSlides: null,
   speakerNote: null,
   title: null,
-  goToNextSlide: async () => { },
-  goToPreviousSlide: async () => { },
+  goToNextSlide: noopAsync,
+  goToPreviousSlide: noopAsync,
 });
 
-export interface SlidesContextProviderProps extends PropsWithChildren {
-  sdkLogLevel?: "none" | "error" | "warn" | "info" | "debug";
-}
+export function SlidesContextProvider(props: PropsWithChildren) {
+  const { children } = props;
 
-export function SlidesContextProvider(props: SlidesContextProviderProps) {
-  const { children, sdkLogLevel = "none" } = props;
-
-  const { info: logInfo, error: logError, warn: logWarn, debug: logDebug } = useLogger();
-
-  const sdk = useMemo(() => new EvenBetterSdk(), []);
-
-  useEffect(() => {
-    EvenBetterSdk.setLogLevel(sdkLogLevel);
-  }, [sdkLogLevel]);
-
-  useEffect(() => {
-    EvenBetterSdk.logger = {
-      info: (message: string) => logInfo('app', message),
-      error: (message: string) => logError('sdk', message),
-      warn: (message: string) => logWarn('sdk', message),
-      debug: (message: string) => logDebug('sdk', message),
-    }
-  }, []);
-
-
-  const value = useSlidesRemote(sdk);
+  const value = useSlidesRemote();
 
   return (
-    <SlidesContext.Provider value={{ ...value, sdk }}>
+    <SlidesContext.Provider value={value}>
       {children}
     </SlidesContext.Provider>
   );
@@ -115,7 +100,7 @@ export function useSlidesContext(): SlidesContextValue {
 }
 
 
-function useSlidesRemote(sdk: EvenBetterSdk): Omit<SlidesContextValue, 'sdk'> {
+function useSlidesRemote(): SlidesContextValue {
   const [presentationData, setPresentationData] = useState<PresentationData | null>(null);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const transitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -140,7 +125,7 @@ function useSlidesRemote(sdk: EvenBetterSdk): Omit<SlidesContextValue, 'sdk'> {
       }
       socket.send(JSON.stringify(message));
     },
-    [logInfo]
+    [logError]
   );
 
   const sendJoin = useCallback((pairing: PairingPayload) => {
@@ -160,7 +145,7 @@ function useSlidesRemote(sdk: EvenBetterSdk): Omit<SlidesContextValue, 'sdk'> {
       });
       logDebug("slides-remote", `Command sent: ${type}`);
     },
-    [logInfo, sendSocketMessage]
+    [logDebug, sendSocketMessage]
   );
 
   const goToNextSlide = useCallback(async () => {
@@ -176,7 +161,7 @@ function useSlidesRemote(sdk: EvenBetterSdk): Omit<SlidesContextValue, 'sdk'> {
       transitionTimeoutRef.current = null;
     }, TRANSITION_TIMEOUT_MS);
     await sendCommand("next");
-  }, [sendCommand, clearTransitionTimeout, presentationData?.current, presentationData?.total]);
+  }, [sendCommand, clearTransitionTimeout, presentationData]);
 
   const goToPreviousSlide = useCallback(async () => {
     const current = presentationData?.current ?? null;
@@ -190,7 +175,7 @@ function useSlidesRemote(sdk: EvenBetterSdk): Omit<SlidesContextValue, 'sdk'> {
       transitionTimeoutRef.current = null;
     }, TRANSITION_TIMEOUT_MS);
     await sendCommand("previous");
-  }, [sendCommand, clearTransitionTimeout, presentationData?.current]);
+  }, [sendCommand, clearTransitionTimeout, presentationData]);
 
   const handleSocketMessage = useCallback((event: MessageEvent) => {
     if (!event.data || typeof event.data !== "string") {
@@ -224,6 +209,17 @@ function useSlidesRemote(sdk: EvenBetterSdk): Omit<SlidesContextValue, 'sdk'> {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
 
+  const disconnect = useCallback(() => {
+    clearTransitionTimeout();
+    setIsTransitioning(false);
+    const socket = socketRef.current;
+    if (socket) {
+      socket.close();
+    }
+    socketRef.current = null;
+    setIsConnected(false);
+  }, [clearTransitionTimeout]);
+
   const connect = useCallback(async (pairingCode: string) => {
     try {
       setIsConnecting(true);
@@ -245,7 +241,7 @@ function useSlidesRemote(sdk: EvenBetterSdk): Omit<SlidesContextValue, 'sdk'> {
 
       logInfo("slides-remote", `Connecting to WebSocket: ${WEBSOCKET_URL}`);
 
-      const socket = new WebSocket(WEBSOCKET_URL!);
+      const socket = new WebSocket(WEBSOCKET_URL);
       socketRef.current = socket;
       setIsConnected(false);
 
@@ -272,7 +268,7 @@ function useSlidesRemote(sdk: EvenBetterSdk): Omit<SlidesContextValue, 'sdk'> {
               resolve();
             }
 
-            return current || handled
+            return current || handled;
           });
         });
 
@@ -281,14 +277,14 @@ function useSlidesRemote(sdk: EvenBetterSdk): Omit<SlidesContextValue, 'sdk'> {
           setIsConnected((current) => {
             if (!current) {
               logError("slides-remote", "Join failed");
-              reject(new Error("Invalid Pairing Code"))
+              reject(new Error("Invalid Pairing Code"));
             }
 
             return false;
           });
         });
       });
-      await sdk.setValue('pairingCode', pairingCode);
+      await storageSetRaw(PAIRING_STORAGE_KEY, pairingCode);
     } catch (err) {
       logError("pairing", `Failed to connect: ${err}`);
       setIsConnecting(false);
@@ -296,48 +292,48 @@ function useSlidesRemote(sdk: EvenBetterSdk): Omit<SlidesContextValue, 'sdk'> {
     } finally {
       setIsConnecting(false);
     }
-  }, [logInfo, logError, sendJoin, handleSocketMessage, sdk, setIsConnecting]);
-
-  const disconnect = useCallback(() => {
-    clearTransitionTimeout();
-    setIsTransitioning(false);
-    const socket = socketRef.current;
-    if (socket) {
-      socket.removeEventListener("close", () => undefined);
-      socket.removeEventListener("message", () => undefined);
-      socket.removeEventListener("open", () => undefined);
-      socket.removeEventListener("error", () => undefined);
-      socket.close();
-    }
-    socketRef.current = null;
-    setIsConnected(false);
-  }, [clearTransitionTimeout]);
+  }, [logInfo, logError, logWarn, sendJoin, handleSocketMessage, disconnect]);
 
   useEffect(() => {
     if (isConnected) {
       return;
     }
 
-    sdk.getValue('pairingCode').then((pairingCode) => {
+    storageGetRaw(PAIRING_STORAGE_KEY).then((pairingCode) => {
+      if (!pairingCode) {
+        return;
+      }
       connect(pairingCode)
         .catch((err) => {
           logError("pairing", `Failed to re-connect to known pairing code: ${err}`);
-          sdk.setValue('pairingCode', "");
+          storageSetRaw(PAIRING_STORAGE_KEY, "");
         });
     });
-  }, [isConnected, logError, connect, sdk])
+  }, [isConnected, logError, connect]);
 
-  return {
-    connect,
-    disconnect,
-    isConnected,
-    isConnecting,
-    isTransitioning,
-    currentSlide: presentationData?.current ?? null,
-    totalSlides: presentationData?.total ?? null,
-    speakerNote: presentationData?.speakerNote ?? null,
-    title: presentationData?.title ?? null,
-    goToNextSlide,
-    goToPreviousSlide,
-  };
+  return useMemo(
+    () => ({
+      connect,
+      disconnect,
+      isConnected,
+      isConnecting,
+      isTransitioning,
+      currentSlide: presentationData?.current ?? null,
+      totalSlides: presentationData?.total ?? null,
+      speakerNote: presentationData?.speakerNote ?? null,
+      title: presentationData?.title ?? null,
+      goToNextSlide,
+      goToPreviousSlide,
+    }),
+    [
+      connect,
+      disconnect,
+      isConnected,
+      isConnecting,
+      isTransitioning,
+      presentationData,
+      goToNextSlide,
+      goToPreviousSlide,
+    ]
+  );
 }

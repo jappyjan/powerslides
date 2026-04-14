@@ -3,10 +3,13 @@
   "version": "0.0.1",
   "private": true,
   "dependencies": {
-    "@evenrealities/even_hub_sdk": "^0.0.6",
-    "@jappyjan/even-better-sdk": "^0.0.11",
-    "@jappyjan/even-realities-ui": "^0.0.9",
+    "@evenrealities/even_hub_sdk": "^0.0.9",
     "@tailwindcss/vite": "^4.1.18",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "even-toolkit": "^1.7.0",
+    "react-router": "^7.0.0",
+    "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.1.18",
     "zustand": "^5.0.10"
   }

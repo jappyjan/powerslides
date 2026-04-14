@@ -7,7 +7,7 @@ export default defineConfig(() => ({
   root: import.meta.dirname,
   cacheDir: '../../node_modules/.vite/apps/powerslides',
   resolve: {
-    dedupe: ['@jappyjan/even-better-sdk', '@evenrealities/even_hub_sdk'],
+    dedupe: ['even-toolkit', '@evenrealities/even_hub_sdk', 'react', 'react-dom', 'react-router'],
     preserveSymlinks: true,
   },
   server: {

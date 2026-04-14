@@ -1,14 +1,6 @@
 import { useState } from "react";
 import { formatPairingCode } from "@jappyjan/powerslides-shared";
-import {
-  Button,
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  Input,
-  Text,
-} from "@jappyjan/even-realities-ui";
+import { Button, Card, Input } from "even-toolkit/web";
 import { useSlidesContext } from "../slidesContext";
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -44,9 +36,14 @@ export function SlideCodeInput() {
 
   return (
     <div className="flex flex-col gap-6">
-      <Card>
-        <CardHeader>Pairing code</CardHeader>
-        <CardContent className="flex flex-col gap-4">
+      <Card padding="none">
+        <div
+          className="px-4 py-3 text-medium-title"
+          style={{ borderBottom: "1px solid var(--color-border)" }}
+        >
+          Pairing code
+        </div>
+        <div className="flex flex-col gap-4 px-4 py-4">
           <Input
             id="slide-code"
             value={nextPairingCode}
@@ -54,29 +51,35 @@ export function SlideCodeInput() {
             placeholder="ABCD-EFGH-IJKL"
             className="font-mono"
           />
-          <Text variant="detail">
+          <p className="text-detail" style={{ color: "var(--color-text-dim)" }}>
             Get the code from the extension popup.
-          </Text>
-        </CardContent>
-        <CardFooter>
+          </p>
+        </div>
+        <div
+          className="px-4 py-3"
+          style={{ borderTop: "1px solid var(--color-border)" }}
+        >
           <Button
             onClick={handleConnect}
-            variant="primary"
+            variant="highlight"
             disabled={isConnecting}
           >
             {isConnecting ? "Connecting…" : "Connect"}
           </Button>
-        </CardFooter>
+        </div>
       </Card>
 
       {error && (
         <div
-          className="rounded-md border border-red-200 bg-red-50 px-4 py-3"
+          className="rounded-md px-4 py-3 text-detail"
           role="alert"
+          style={{
+            border: "1px solid var(--color-negative)",
+            backgroundColor: "var(--color-negative-alpha)",
+            color: "var(--color-negative)",
+          }}
         >
-          <Text variant="detail" className="text-red-700">
-            {error}
-          </Text>
+          {error}
         </div>
       )}
     </div>

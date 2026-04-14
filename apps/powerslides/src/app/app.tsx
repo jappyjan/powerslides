@@ -2,7 +2,6 @@ import { SlidesContextProvider, useSlidesContext } from "../slidesContext";
 import { SlideCodeInput } from "../components/slideCodeInput";
 import { Log } from "../components/log";
 import { SlideControlsV2 } from "../components/slideControlsV2";
-import { Text } from "@jappyjan/even-realities-ui";
 
 const DOCS_URL =
   (import.meta.env.VITE_DOCS_URL as string | undefined) ||
@@ -29,11 +28,10 @@ export function App() {
           href={DOCS_URL}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-4 inline-block"
+          className="mt-4 inline-block text-detail underline hover:opacity-80"
+          style={{ color: "var(--color-text-dim)" }}
         >
-          <Text variant="detail" className="text-gray-500 underline hover:text-gray-700">
-            Docs & how to use
-          </Text>
+          Docs & how to use
         </a>
         <Log />
       </main>
