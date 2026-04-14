@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   createPairingSession,
+  normalizeSpeakerNote,
   type PairingPayload,
   type PresentationData,
 } from '@jappyjan/powerslides-shared';
@@ -262,18 +263,7 @@ export const useGoogleSlides = () => {
       });
     }
     if (state.speakerNote !== undefined) {
-      const htmlWithBreaks = String(state.speakerNote || '')
-        .replace(/<\s*br\s*\/?>/gi, '\n')
-        .replace(/<\/\s*p\s*>/gi, '\n')
-        .replace(/<\/\s*div\s*>/gi, '\n')
-        .replace(/<\/\s*li\s*>/gi, '\n');
-      const text =
-        typeof DOMParser !== 'undefined'
-          ? (new DOMParser().parseFromString(htmlWithBreaks, 'text/html').body.textContent ?? '')
-              .replace(/\n{3,}/g, '\n\n')
-              .trim()
-          : htmlWithBreaks.replace(/<[^>]+>/g, '');
-      setSpeakerNotes(text || null);
+      setSpeakerNotes(normalizeSpeakerNote(state.speakerNote));
     }
   }, []);
 

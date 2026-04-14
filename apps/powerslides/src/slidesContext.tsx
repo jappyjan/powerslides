@@ -7,6 +7,7 @@ import {
   type WsMessage,
   type WsStateMessage,
   normalizePairingCode,
+  normalizeSpeakerNote,
   parsePairingCodeResult,
   PairingPayload,
 } from "@jappyjan/powerslides-shared";
@@ -27,26 +28,6 @@ const normalizeNumber = (value: unknown): number | null => {
   }
   return null;
 };
-
-const normalizeSpeakerNote = (value?: string | null): string | null => {
-  if (!value) {
-    return null;
-  }
-
-  const htmlWithBreaks = value
-    .replace(/<\s*br\s*\/?>/gi, "\n")
-    .replace(/<\/\s*p\s*>/gi, "\n")
-    .replace(/<\/\s*div\s*>/gi, "\n")
-    .replace(/<\/\s*li\s*>/gi, "\n");
-
-  if (typeof DOMParser === "undefined") {
-    return htmlWithBreaks.replace(/<[^>]+>/g, "");
-  }
-
-  const doc = new DOMParser().parseFromString(htmlWithBreaks, "text/html");
-  const text = doc.body.textContent ?? "";
-  return text.replace(/\n{3,}/g, "\n\n").trim();
-}
 
 const normalizeState = (data: unknown): PresentationData | null => {
   if (!data || typeof data !== "object") {
